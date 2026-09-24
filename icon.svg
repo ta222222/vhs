@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img">
+  <rect width="512" height="512" fill="#0c0b0a"/>
+  <rect x="72" y="96" width="368" height="288" fill="none" stroke="#ffb25a" stroke-width="20"/>
+  <circle cx="256" cy="240" r="78" fill="none" stroke="#ffb25a" stroke-width="18"/>
+  <circle cx="256" cy="240" r="28" fill="#ffb25a"/>
+  <rect x="348" y="128" width="42" height="24" fill="#ffb25a"/>
+  <text x="256" y="440" text-anchor="middle" fill="#ffb25a" font-family="ui-monospace, Menlo, monospace" font-size="42" letter-spacing="8">STILL</text>
+</svg>
