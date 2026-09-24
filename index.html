@@ -104,12 +104,47 @@
       letter-spacing: 0.18em;
     }
 
+    .dock {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      pointer-events: none;
+    }
+
+    .presets, .zoom {
+      pointer-events: auto;
+      display: flex;
+      gap: 6px;
+      overflow-x: auto;
+      scrollbar-width: none;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .presets::-webkit-scrollbar, .zoom::-webkit-scrollbar { display: none; }
+
+    .zoom { justify-content: center; }
+
+    .presets button, .zoom button {
+      min-height: 32px;
+      padding: 0 10px;
+      flex: 0 0 auto;
+    }
+
+    .presets button.active, .zoom button.active {
+      color: #141210;
+      background: var(--fg);
+      border-color: transparent;
+    }
+
     .bottom {
       display: grid;
       grid-template-columns: 1fr auto 1fr;
       align-items: center;
       gap: 12px;
+      pointer-events: none;
     }
+
+    .bottom .side, .bottom .shutter { pointer-events: auto; }
 
     .side {
       display: flex;
@@ -165,8 +200,13 @@
       height: 40px;
       padding: 0;
       border-radius: 4px;
-      overflow: hidden;
+      overflow: visible;
       border-color: var(--line);
+      position: relative;
+    }
+
+    .thumb img {
+      border-radius: 3px;
     }
 
     .thumb img {
@@ -174,6 +214,21 @@
       height: 100%;
       object-fit: cover;
       display: block;
+    }
+
+    .thumb .count {
+      position: absolute;
+      right: -4px;
+      top: -6px;
+      min-width: 16px;
+      height: 16px;
+      padding: 0 4px;
+      border-radius: 99px;
+      background: var(--amber);
+      color: #1a1208;
+      font-size: 9px;
+      line-height: 16px;
+      letter-spacing: 0;
     }
 
     .gate, .viewer {
@@ -185,7 +240,12 @@
       padding: 24px;
     }
 
-    .gate { background: rgba(8, 7, 6, 0.28); }
+    .gate {
+      background: rgba(8, 7, 6, 0.28);
+      pointer-events: none;
+    }
+
+    .gate .card { pointer-events: auto; }
 
     body.is-live .gate { display: none; }
 
@@ -239,9 +299,33 @@
       background: #000;
     }
 
-    .viewer .row {
+    .viewer .row, .strip {
       display: flex;
       gap: 8px;
+    }
+
+    .strip {
+      max-width: min(920px, 100%);
+      overflow-x: auto;
+      padding-bottom: 2px;
+    }
+
+    .strip button {
+      width: 52px;
+      height: 40px;
+      padding: 0;
+      border-radius: 3px;
+      overflow: hidden;
+      flex: 0 0 auto;
+    }
+
+    .strip button.active { outline: 1px solid var(--amber); }
+
+    .strip img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
     }
 
     .toast {
@@ -290,16 +374,27 @@
         <span id="tape">T-00:00</span>
       </div>
     </div>
-    <div class="bottom">
-      <div class="side">
-        <button type="button" id="flip" disabled>Flip</button>
-        <button type="button" id="dateBtn" class="on" disabled>Date</button>
+    <div class="dock">
+      <div class="presets" id="presets" role="group" aria-label="Look presets"></div>
+      <div class="zoom" id="zoom" role="group" aria-label="Camera zoom">
+        <button type="button" data-zoom="0.5" title="13mm ultra-wide, full-frame equivalent" disabled>13mm</button>
+        <button type="button" data-zoom="1" class="active" disabled>1×</button>
+        <button type="button" data-zoom="2" disabled>2×</button>
+        <button type="button" data-zoom="4" disabled>4×</button>
+        <button type="button" data-zoom="6" disabled>6×</button>
       </div>
-      <button type="button" class="shutter" id="shutter" disabled aria-label="Take photo"></button>
-      <div class="side right">
-        <button type="button" class="thumb" id="thumb" hidden aria-label="Last photo">
-          <img alt="" id="thumbImg">
-        </button>
+      <div class="bottom">
+        <div class="side">
+          <button type="button" id="flip" disabled>Flip</button>
+          <button type="button" id="dateBtn" class="on" disabled>Date</button>
+        </div>
+        <button type="button" class="shutter" id="shutter" disabled aria-label="Take photo"></button>
+        <div class="side right">
+          <button type="button" class="thumb" id="thumb" hidden aria-label="All photos">
+            <img alt="" id="thumbImg">
+            <span class="count" id="count">1</span>
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -314,8 +409,10 @@
 
   <div class="viewer" id="viewer">
     <img id="review" alt="Captured still">
+    <div class="strip" id="strip"></div>
     <div class="row">
-      <button type="button" id="save">Save</button>
+      <button type="button" id="save">Save this</button>
+      <button type="button" id="saveAll">Save all</button>
       <button type="button" id="closeReview">Back</button>
     </div>
   </div>
@@ -333,6 +430,13 @@
     const work = document.createElement('canvas');
     const wctx = work.getContext('2d', { willReadFrequently: true, alpha: false });
 
+    const PRESETS = [
+      { id: 'ricoh', name: 'Ricoh', smear: 0.12, soft: 0.04, crisp: 0.62, noise: 0.22, scan: 1, lift: 2, gain: 1.1, vig: 0.08, band: 0, r: 1.01, g: 1.0, b: 0.99, tear: false },
+      { id: 'contax', name: 'Contax T2', smear: 0.42, soft: 0.22, crisp: 0.18, noise: 0.32, scan: 0.992, lift: 5, gain: 1.04, vig: 0.2, band: 0, r: 1.08, g: 1.0, b: 0.9, tear: false },
+      { id: 'fuji', name: 'Fujifilm', smear: 0.58, soft: 0.4, crisp: 0.06, noise: 0.38, scan: 0.994, lift: 7, gain: 0.98, vig: 0.14, band: 0, r: 1.03, g: 1.07, b: 0.93, tear: false },
+      { id: 'coolpix', name: 'Coolpix', smear: 1.25, soft: 0.82, crisp: 0, noise: 0.62, scan: 0.986, lift: 9, gain: 0.93, vig: 0.16, band: 0, r: 1.1, g: 1.02, b: 0.95, tear: false }
+    ];
+
     const state = {
       stream: null,
       facing: 'environment',
@@ -340,10 +444,23 @@
       dateOn: true,
       startedAt: 0,
       raf: 0,
-      lastShot: null,
+      shots: [],
+      shotN: 0,
+      reviewIndex: 0,
+      presetId: 'contax',
+      zoom: 1,
+      zoomAnim: 1,
+      optical: 1,
+      hwWide: false,
       holdStill: null,
-      holdUntil: 0
+      holdUntil: 0,
+      busy: false,
+      queued: 0
     };
+
+    function preset() {
+      return PRESETS.find((p) => p.id === state.presetId) || PRESETS[0];
+    }
 
     const buf = {
       y: null, u: null, v: null, tmp: null, y2: null, w: 0, h: 0
@@ -462,8 +579,9 @@
         vA[i] = 0.5 * r - 0.419 * g - 0.081 * b;
       }
 
-      const rh = Math.max(4, Math.round(w / 58));
-      const rv = Math.max(1, Math.round(h / 110));
+      const look = opts.look || preset();
+      const rh = Math.max(0, Math.round((w / 80) * look.smear));
+      const rv = Math.max(0, Math.round((h / 140) * look.smear));
       const uBlur = buf.extra;
       boxBlurH(uA, tmp, w, h, rh);
       boxBlurH(tmp, uA, w, h, rh);
@@ -475,8 +593,8 @@
 
       boxBlurH(yA, y2, w, h, 1);
 
-      const shift = Math.max(2, Math.round(w * 0.004));
-      const band = Math.max(6, Math.round(h * 0.02));
+      const shift = Math.max(1, Math.round(w * 0.004 * look.smear));
+      const band = look.band <= 0 ? 0 : Math.max(4, Math.round(h * look.band));
       const bandTop = h - band;
       const live = opts.live;
       const seed = (opts.seed || 1) | 0;
@@ -485,10 +603,13 @@
         const row = y * w;
         const above = Math.max(0, y - 1) * w;
         const below = Math.min(h - 1, y + 1) * w;
-        const scan = (y & 1) ? 0.972 : 1;
+        const scan = (y & 1) ? look.scan : 1;
         for (let x = 0; x < w; x++) {
           const i = row + x;
-          let luma = y2[i] * 0.8 + yA[above + x] * 0.1 + yA[below + x] * 0.1;
+          const sharpLuma = yA[i];
+          const softLuma = y2[i] * 0.7 + yA[above + x] * 0.15 + yA[below + x] * 0.15;
+          let luma = sharpLuma * (1 - look.soft) + softLuma * look.soft;
+          if (look.crisp) luma += (sharpLuma - y2[i]) * look.crisp;
           luma *= scan;
 
           const cx = Math.min(w - 1, Math.max(0, x - shift));
@@ -497,13 +618,13 @@
 
           const nx = (x / (w - 1)) * 2 - 1;
           const ny = (y / (h - 1)) * 2 - 1;
-          const vig = 1 - 0.2 * (nx * nx * 0.85 + ny * ny);
+          const vig = 1 - look.vig * (nx * nx * 0.85 + ny * ny);
           luma *= vig;
 
-          const noise = (hash(i * 13 + seed) - 0.5) * (live ? 3.2 : 4.2);
+          const noise = (hash(i * 13 + seed) - 0.5) * (live ? 3.2 : 4.0) * look.noise;
           luma += noise * (0.65 + (1 - luma / 255) * 0.35);
 
-          if (y >= bandTop) {
+          if (band > 0 && y >= bandTop) {
             const t = (y - bandTop) / band;
             const smearX = Math.max(0, x - 3);
             luma = luma * (1 - t * 0.35) + y2[row + smearX] * (t * 0.22);
@@ -512,7 +633,7 @@
             V *= 1 - t * 0.45;
           }
 
-          let Y = luma * 0.9 + 16;
+          let Y = luma * look.gain + look.lift;
           if (Y < 0) Y = 0;
           if (Y > 244) Y = 244 - (Y - 244) * 0.25;
 
@@ -520,10 +641,9 @@
           let g = Y - 0.344 * U - 0.714 * V;
           let b = Y + 1.772 * U;
 
-          const shade = Math.min(1, Math.max(0, Y / 230));
-          r = r * (1.03 + shade * 0.03) + 7;
-          g = g * 0.985 + 5;
-          b = b * (0.9 + shade * 0.05) + 9;
+          r = r * look.r + 6;
+          g = g * look.g + 4;
+          b = b * look.b + 7;
 
           const p = i * 4;
           d[p] = r < 0 ? 0 : r > 255 ? 255 : r;
@@ -533,9 +653,10 @@
         }
       }
 
-      if (!live) return;
+      const doTear = look.tear && (live ? (seed % 70) === 0 : true);
+      if (!doTear) return;
       const tearY = (seed % (h - 8));
-      if ((seed % 110) === 0) {
+      if (live || (seed % 3) === 0) {
         for (let y = tearY; y < tearY + 2 && y < h; y++) {
           const row = y * w * 4;
           const next = d.slice(row, row + w * 4);
@@ -569,23 +690,49 @@
       return { w: Math.max(2, w), h: Math.max(2, h) };
     }
 
-    function drawVideoCover(ctx, w, h) {
-      const vw = video.videoWidth || 4;
-      const vh = video.videoHeight || 3;
-      const scale = Math.max(w / vw, h / vh);
-      const dw = vw * scale;
-      const dh = vh * scale;
-      const dx = (w - dw) / 2;
-      const dy = (h - dh) / 2;
+    function drawMirrored(ctx, src, sx, sy, sw, sh, dx, dy, dw, dh, w) {
       ctx.save();
       if (state.facing === 'user') {
         ctx.translate(w, 0);
         ctx.scale(-1, 1);
-        ctx.drawImage(video, -dx - dw, dy, dw, dh);
+        ctx.drawImage(src, sx, sy, sw, sh, -dx - dw, dy, dw, dh);
       } else {
-        ctx.drawImage(video, dx, dy, dw, dh);
+        ctx.drawImage(src, sx, sy, sw, sh, dx, dy, dw, dh);
       }
       ctx.restore();
+    }
+
+    function digitalZoom() {
+      if (state.zoom < 0.75) return 1;
+      const optical = state.optical > 1.01 ? state.optical : 1;
+      return Math.max(1, state.zoom / optical);
+    }
+
+    function drawVideoCover(ctx, w, h) {
+      const vw = video.videoWidth || 4;
+      const vh = video.videoHeight || 3;
+      const target = digitalZoom();
+      state.zoomAnim += (target - state.zoomAnim) * 0.22;
+      if (Math.abs(state.zoomAnim - target) < 0.004) state.zoomAnim = target;
+      const factor = Math.max(1, state.zoomAnim);
+      const destAspect = w / h;
+      const videoAspect = vw / vh;
+      let cw;
+      let ch;
+      if (videoAspect > destAspect) {
+        ch = vh / factor;
+        cw = ch * destAspect;
+      } else {
+        cw = vw / factor;
+        ch = cw / destAspect;
+      }
+      cw = Math.min(vw, cw);
+      ch = Math.min(vh, ch);
+      const sx = (vw - cw) * 0.5;
+      const sy = (vh - ch) * 0.5;
+      ctx.fillStyle = '#070605';
+      ctx.fillRect(0, 0, w, h);
+      drawMirrored(ctx, video, sx, sy, cw, ch, 0, 0, w, h, w);
     }
 
     function renderFrame(forCapture) {
@@ -677,14 +824,38 @@
       state.stream = stream;
       video.srcObject = stream;
       await video.play();
+      await syncLens();
       state.running = true;
       state.startedAt = performance.now();
       document.body.classList.add('is-live');
       document.getElementById('shutter').disabled = false;
       document.getElementById('flip').disabled = false;
       document.getElementById('dateBtn').disabled = false;
+      document.querySelectorAll('#zoom button').forEach((btn) => { btn.disabled = false; });
       cancelAnimationFrame(state.raf);
       loop();
+    }
+
+    async function syncLens() {
+      const track = state.stream && state.stream.getVideoTracks()[0];
+      state.hwWide = false;
+      state.optical = 1;
+      if (!track || !track.getCapabilities || !track.applyConstraints) return;
+      const caps = track.getCapabilities();
+      if (!caps.zoom) return;
+      const wide = caps.zoom.min;
+      let want = 1;
+      if (state.zoom < 0.75) want = wide;
+      else want = Math.min(caps.zoom.max, Math.max(wide, state.zoom));
+      try {
+        await track.applyConstraints({ advanced: [{ zoom: want }] });
+        const applied = track.getSettings && track.getSettings().zoom;
+        state.optical = typeof applied === 'number' ? applied : want;
+        state.hwWide = state.zoom < 0.75 && wide < 0.95;
+      } catch (err) {
+        state.hwWide = false;
+        state.optical = 1;
+      }
     }
 
     function clickSound() {
@@ -705,56 +876,113 @@
       osc.stop(ctx.currentTime + 0.08);
     }
 
-    async function takePhoto() {
-      if (!state.running || video.readyState < 2) return;
+    function pushShot(blob) {
+      const when = new Date();
+      state.shotN += 1;
+      const name = 'still-' + when.getFullYear() + pad(when.getMonth() + 1) + pad(when.getDate()) + '-' + pad(when.getHours()) + pad(when.getMinutes()) + pad(when.getSeconds()) + '-' + pad(state.shotN) + '.jpg';
+      const url = URL.createObjectURL(blob);
+      state.shots.push({ blob, url, name });
+      const thumb = document.getElementById('thumb');
+      document.getElementById('thumbImg').src = url;
+      document.getElementById('count').textContent = String(state.shots.length);
+      thumb.hidden = false;
+      if (document.body.classList.contains('reviewing')) showReview(state.shots.length - 1);
+    }
+
+    async function captureOne() {
       const flash = document.getElementById('flash');
       flash.classList.remove('pop');
       void flash.offsetWidth;
       flash.classList.add('pop');
       clickSound();
       const shot = renderFrame(true);
-      state.holdStill = document.createElement('canvas');
-      state.holdStill.width = shot.width;
-      state.holdStill.height = shot.height;
-      state.holdStill.getContext('2d').drawImage(shot, 0, 0);
-      state.holdUntil = performance.now() + 420;
-      const blob = await new Promise((resolve) => shot.toBlob(resolve, 'image/jpeg', 0.88));
+      const copy = document.createElement('canvas');
+      copy.width = shot.width;
+      copy.height = shot.height;
+      copy.getContext('2d').drawImage(shot, 0, 0);
+      state.holdStill = copy;
+      state.holdUntil = performance.now() + 140;
+      const blob = await new Promise((resolve) => copy.toBlob(resolve, 'image/jpeg', 0.88));
       if (!blob) {
-        toast('Could not save frame');
+        toast('Could not keep frame');
         return;
       }
-      const when = new Date();
-      const name = 'still-' + when.getFullYear() + pad(when.getMonth() + 1) + pad(when.getDate()) + '-' + pad(when.getHours()) + pad(when.getMinutes()) + pad(when.getSeconds()) + '.jpg';
-      if (state.lastShot && state.lastShot.url) URL.revokeObjectURL(state.lastShot.url);
-      const url = URL.createObjectURL(blob);
-      state.lastShot = { blob, url, name };
-      const thumb = document.getElementById('thumb');
-      document.getElementById('thumbImg').src = url;
-      thumb.hidden = false;
+      pushShot(blob);
     }
 
-    async function saveShot() {
-      const shot = state.lastShot;
-      if (!shot) return;
-      const file = new File([shot.blob], shot.name, { type: 'image/jpeg' });
+    async function takePhoto() {
+      if (!state.running || video.readyState < 2) return;
+      if (state.busy) {
+        state.queued = Math.min(12, state.queued + 1);
+        return;
+      }
+      state.busy = true;
       try {
-        if (navigator.canShare && navigator.canShare({ files: [file] })) {
-          await navigator.share({ files: [file], title: 'STILL' });
-          return;
+        do {
+          await captureOne();
+          if (state.queued > 0) state.queued -= 1;
+          else break;
+        } while (state.running);
+      } finally {
+        state.busy = false;
+      }
+    }
+
+    async function shareFiles(files) {
+      try {
+        if (navigator.canShare && navigator.canShare({ files })) {
+          await navigator.share({ files, title: 'STILL' });
+          return true;
         }
       } catch (err) {
-        if (err && err.name === 'AbortError') return;
+        if (err && err.name === 'AbortError') return true;
       }
-      const a = document.createElement('a');
-      a.href = shot.url;
-      a.download = shot.name;
-      a.click();
-      toast('Downloaded');
+      files.forEach((file, i) => {
+        const shot = state.shots.find((s) => s.name === file.name);
+        if (!shot) return;
+        setTimeout(() => {
+          const a = document.createElement('a');
+          a.href = shot.url;
+          a.download = shot.name;
+          a.click();
+        }, i * 250);
+      });
+      toast(files.length > 1 ? 'Downloading ' + files.length : 'Downloaded');
+      return false;
     }
 
-    function openReview() {
-      if (!state.lastShot) return;
-      document.getElementById('review').src = state.lastShot.url;
+    function fileFor(shot) {
+      return new File([shot.blob], shot.name, { type: 'image/jpeg' });
+    }
+
+    function saveShot() {
+      const shot = state.shots[state.reviewIndex];
+      if (!shot) return;
+      shareFiles([fileFor(shot)]);
+    }
+
+    function saveAll() {
+      if (!state.shots.length) return;
+      shareFiles(state.shots.map(fileFor));
+    }
+
+    function showReview(index) {
+      if (!state.shots.length) return;
+      state.reviewIndex = Math.max(0, Math.min(state.shots.length - 1, index));
+      document.getElementById('review').src = state.shots[state.reviewIndex].url;
+      const strip = document.getElementById('strip');
+      strip.replaceChildren();
+      state.shots.forEach((shot, i) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        if (i === state.reviewIndex) btn.classList.add('active');
+        const img = document.createElement('img');
+        img.src = shot.url;
+        img.alt = '';
+        btn.appendChild(img);
+        btn.addEventListener('click', () => showReview(i));
+        strip.appendChild(btn);
+      });
       document.body.classList.add('reviewing');
     }
 
@@ -779,10 +1007,40 @@
       state.dateOn = !state.dateOn;
       document.getElementById('dateBtn').classList.toggle('on', state.dateOn);
     });
-    document.getElementById('thumb').addEventListener('click', openReview);
+    document.getElementById('thumb').addEventListener('click', () => showReview(state.shots.length - 1));
     document.getElementById('save').addEventListener('click', saveShot);
+    document.getElementById('saveAll').addEventListener('click', saveAll);
     document.getElementById('closeReview').addEventListener('click', () => {
       document.body.classList.remove('reviewing');
+    });
+
+    const presetBar = document.getElementById('presets');
+    PRESETS.forEach((look) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = look.name;
+      btn.classList.toggle('active', look.id === state.presetId);
+      btn.addEventListener('click', () => {
+        state.presetId = look.id;
+        presetBar.querySelectorAll('button').forEach((el) => {
+          el.classList.toggle('active', el === btn);
+        });
+        toast(look.name);
+        if (!state.running) demoPlate();
+      });
+      presetBar.appendChild(btn);
+    });
+
+    document.getElementById('zoom').addEventListener('click', async (e) => {
+      const btn = e.target.closest('[data-zoom]');
+      if (!btn || btn.disabled) return;
+      state.zoom = +btn.getAttribute('data-zoom');
+      document.querySelectorAll('#zoom button').forEach((el) => {
+        el.classList.toggle('active', el === btn);
+      });
+      await syncLens();
+      if (state.zoom < 0.75) toast(state.hwWide ? '13mm ultra-wide' : '13mm · widest frame');
+      else toast(state.zoom + '×');
     });
 
     window.addEventListener('resize', () => {
