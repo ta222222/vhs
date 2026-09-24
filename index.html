@@ -613,7 +613,6 @@
       mediaRecorder: null,
       recordedChunks: [],
       recordStream: null,
-      micStream: null,
       recordTimerId: 0,
       recordStartedAt: 0,
       holdTimer: 0,
@@ -1308,10 +1307,10 @@
 
     function pickRecorderMime() {
       const types = [
-        'video/mp4;codecs=avc1,mp4a.40.2',
+        'video/mp4;codecs=avc1',
         'video/mp4',
-        'video/webm;codecs=vp9,opus',
-        'video/webm;codecs=vp8,opus',
+        'video/webm;codecs=vp9',
+        'video/webm;codecs=vp8',
         'video/webm'
       ];
       if (!window.MediaRecorder || !MediaRecorder.isTypeSupported) return '';
@@ -1321,25 +1320,12 @@
       return '';
     }
 
-    function stopMicTracks() {
-      if (state.micStream) {
-        state.micStream.getTracks().forEach((t) => { try { t.stop(); } catch (e) { /* */ } });
-        state.micStream = null;
-      }
+    function stopRecordStream() {
       if (state.recordStream) {
-        state.recordStream.getAudioTracks().forEach((t) => { try { t.stop(); } catch (e) { /* */ } });
-        state.recordStream = null;
-      }
-    }
-
-    async function getMicStream() {
-      try {
-        return await navigator.mediaDevices.getUserMedia({
-          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-          video: false
+        state.recordStream.getTracks().forEach((t) => {
+          try { t.stop(); } catch (e) { /* */ }
         });
-      } catch (err) {
-        return null;
+        state.recordStream = null;
       }
     }
 
@@ -1375,22 +1361,12 @@
         toast('Could not capture video');
         return;
       }
-      stopMicTracks();
-      state.micStream = await getMicStream();
+      stopRecordStream();
       state.recordStream = new MediaStream();
       canvasStream.getVideoTracks().forEach((t) => state.recordStream.addTrack(t));
-      let hasAudio = false;
-      if (state.micStream) {
-        state.micStream.getAudioTracks().forEach((t) => {
-          state.recordStream.addTrack(t);
-          hasAudio = true;
-        });
-      }
-      if (!hasAudio) toast('Mic off — video only');
       try {
         const opts = { videoBitsPerSecond: 6000000 };
         if (mime) opts.mimeType = mime;
-        if (hasAudio) opts.audioBitsPerSecond = 128000;
         state.mediaRecorder = new MediaRecorder(state.recordStream, opts);
       } catch (err) {
         try {
@@ -1398,7 +1374,7 @@
             ? new MediaRecorder(state.recordStream, { mimeType: mime })
             : new MediaRecorder(state.recordStream);
         } catch (err2) {
-          stopMicTracks();
+          stopRecordStream();
           toast('Could not start recorder');
           return;
         }
@@ -1414,7 +1390,7 @@
       try {
         state.mediaRecorder.start(250);
       } catch (err) {
-        stopMicTracks();
+        stopRecordStream();
         toast('Could not start recording');
         return;
       }
@@ -1422,7 +1398,7 @@
       document.body.classList.add('is-recording');
       document.getElementById('shutter').classList.add('recording');
       startRecordTimer();
-      toast(hasAudio ? 'Recording…' : 'Recording (no mic)');
+      toast('Recording…');
     }
 
     function requestStopRecording() {
@@ -1436,7 +1412,7 @@
 
     function finishRecording(aborted) {
       if (!state.recording && !state.mediaRecorder) {
-        stopMicTracks();
+        stopRecordStream();
         return;
       }
       state.recording = false;
@@ -1447,7 +1423,7 @@
       const mime = (state.mediaRecorder && state.mediaRecorder.mimeType) || 'video/mp4';
       state.mediaRecorder = null;
       state.recordedChunks = [];
-      stopMicTracks();
+      stopRecordStream();
       if (aborted || !chunks.length) {
         toast('Recording cancelled');
         return;
