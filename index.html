@@ -506,10 +506,10 @@
 
     const PRESETS = [
       { id: 'ricoh', name: 'Ricoh', smear: 0.12, soft: 0.04, crisp: 0.62, noise: 0.22, scan: 1, lift: 2, gain: 1.1, vig: 0.08, band: 0, r: 1.01, g: 1.0, b: 0.99, tear: false, bw: false },
-      { id: 'ricohbw', name: 'Ricoh B/W', smear: 0.1, soft: 0.02, crisp: 0.7, noise: 0.3, scan: 1, lift: 0, gain: 1.14, vig: 0.1, band: 0, r: 1, g: 1, b: 1, tear: false, bw: true },
+      { id: 'ricohbw', name: 'GR B/W', smear: 0.05, soft: 0, crisp: 0.95, noise: 0.45, scan: 1, lift: -8, gain: 1.22, vig: 0.18, band: 0, r: 1, g: 1, b: 1, tear: false, bw: true, contrast: 1.72, filter: 'yellow' },
       { id: 'contax', name: 'Contax T2', smear: 0.42, soft: 0.22, crisp: 0.18, noise: 0.32, scan: 0.992, lift: 5, gain: 1.04, vig: 0.2, band: 0, r: 1.08, g: 1.0, b: 0.9, tear: false, bw: false },
       { id: 'fuji', name: 'Fujifilm', smear: 0.58, soft: 0.4, crisp: 0.06, noise: 0.38, scan: 0.994, lift: 7, gain: 0.98, vig: 0.14, band: 0, r: 1.03, g: 1.07, b: 0.93, tear: false, bw: false },
-      { id: 'coolpix', name: 'Coolpix', smear: 0.72, soft: 0.36, crisp: 0.22, noise: 0.48, scan: 0.99, lift: 6, gain: 1.0, vig: 0.14, band: 0, r: 1.08, g: 1.02, b: 0.96, tear: false, bw: false },
+      { id: 'coolpix', name: 'Coolpix', smear: 0.28, soft: 0.12, crisp: 0.78, noise: 0.35, scan: 0.995, lift: 4, gain: 1.08, vig: 0.1, band: 0, r: 1.06, g: 1.01, b: 0.97, tear: false, bw: false },
       { id: 'polaroid', name: 'Polaroid', smear: 0.95, soft: 0.55, crisp: 0, noise: 0.28, scan: 0.995, lift: 22, gain: 0.9, vig: 0.26, band: 0, r: 1.12, g: 1.0, b: 0.86, tear: false, bw: false }
     ];
 
@@ -659,33 +659,45 @@
       const tmp = buf.tmp;
       const y2 = buf.y2;
       const n = w * h;
+      const look = opts.look || preset();
 
       for (let i = 0, p = 0; i < n; i++, p += 4) {
         const r = d[p], g = d[p + 1], b = d[p + 2];
-        yA[i] = 0.299 * r + 0.587 * g + 0.114 * b;
+        if (look.bw && look.filter === 'yellow') {
+          // GR Hi-Contrast yellow filter: warm tones lift, blues sink
+          yA[i] = 0.42 * r + 0.52 * g + 0.06 * b;
+        } else {
+          yA[i] = 0.299 * r + 0.587 * g + 0.114 * b;
+        }
         uA[i] = -0.169 * r - 0.331 * g + 0.5 * b;
         vA[i] = 0.5 * r - 0.419 * g - 0.081 * b;
       }
 
-      const look = opts.look || preset();
       const rh = Math.max(0, Math.round((w / 80) * look.smear));
       const rv = Math.max(0, Math.round((h / 140) * look.smear));
       const uBlur = buf.extra;
-      boxBlurH(uA, tmp, w, h, rh);
-      boxBlurH(tmp, uA, w, h, rh);
-      boxBlurV(uA, uBlur, w, h, rv);
-      boxBlurH(vA, tmp, w, h, rh);
-      boxBlurH(tmp, vA, w, h, rh);
-      boxBlurV(vA, tmp, w, h, rv);
+      if (look.bw) {
+        // Keep chroma unused; skip smear work for speed
+        uBlur.fill(0);
+        tmp.fill(0);
+      } else {
+        boxBlurH(uA, tmp, w, h, rh);
+        boxBlurH(tmp, uA, w, h, rh);
+        boxBlurV(uA, uBlur, w, h, rv);
+        boxBlurH(vA, tmp, w, h, rh);
+        boxBlurH(tmp, vA, w, h, rh);
+        boxBlurV(vA, tmp, w, h, rv);
+      }
       const vBlur = tmp;
 
-      boxBlurH(yA, y2, w, h, 1);
+      boxBlurH(yA, y2, w, h, look.bw ? 0 : 1);
 
-      const shift = Math.max(1, Math.round(w * 0.004 * look.smear));
+      const shift = look.bw ? 0 : Math.max(1, Math.round(w * 0.004 * look.smear));
       const band = look.band <= 0 ? 0 : Math.max(4, Math.round(h * look.band));
       const bandTop = h - band;
       const live = opts.live;
       const seed = (opts.seed || 1) | 0;
+      const contrast = look.contrast || 1;
 
       for (let y = 0; y < h; y++) {
         const row = y * w;
@@ -709,8 +721,9 @@
           const vig = 1 - look.vig * (nx * nx * 0.85 + ny * ny);
           luma *= vig;
 
-          const noise = (hash(i * 13 + seed) - 0.5) * (live ? 3.2 : 4.0) * look.noise;
-          luma += noise * (0.65 + (1 - luma / 255) * 0.35);
+          const noiseAmt = look.bw ? (live ? 2.4 : 3.2) : (live ? 3.2 : 4.0);
+          const noise = (hash(i * 13 + seed) - 0.5) * noiseAmt * look.noise;
+          luma += noise * (0.55 + (1 - luma / 255) * 0.45);
 
           if (band > 0 && y >= bandTop) {
             const t = (y - bandTop) / band;
@@ -722,19 +735,33 @@
           }
 
           let Y = luma * look.gain + look.lift;
+          if (contrast !== 1) {
+            // Hard S-curve — GR Hi-Contrast: crushed blacks, hard whites
+            const t = Math.min(1, Math.max(0, Y / 255));
+            const shaped = t < 0.5
+              ? 0.5 * Math.pow(t * 2, contrast)
+              : 1 - 0.5 * Math.pow((1 - t) * 2, contrast);
+            Y = shaped * 255;
+            // Extra black crush / highlight push for GR HC
+            if (look.bw) {
+              Y = (Y - 128) * 1.18 + 128;
+              if (Y < 18) Y *= Y / 18;
+              if (Y > 235) Y = 235 + (Y - 235) * 0.35;
+            }
+          }
           if (Y < 0) Y = 0;
-          if (Y > 244) Y = 244 - (Y - 244) * 0.25;
+          if (Y > 255) Y = 255;
 
           let r = Y + 1.402 * V;
           let g = Y - 0.344 * U - 0.714 * V;
           let b = Y + 1.772 * U;
 
-          r = r * look.r + (look.bw ? 0 : 6);
-          g = g * look.g + (look.bw ? 0 : 4);
-          b = b * look.b + (look.bw ? 0 : 7);
           if (look.bw) {
-            const gray = 0.299 * r + 0.587 * g + 0.114 * b;
-            r = g = b = gray;
+            r = g = b = Y;
+          } else {
+            r = r * look.r + 6;
+            g = g * look.g + 4;
+            b = b * look.b + 7;
           }
 
           const p = i * 4;
