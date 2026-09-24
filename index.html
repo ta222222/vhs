@@ -578,12 +578,12 @@
     const wctx = work.getContext('2d', { willReadFrequently: true, alpha: false });
 
     const PRESETS = [
-      { id: 'ricoh', name: 'Ricoh', smear: 0.12, soft: 0.04, crisp: 0.62, noise: 0.22, scan: 1, lift: 2, gain: 1.1, vig: 0.08, band: 0, r: 1.01, g: 1.0, b: 0.99, tear: false, bw: false },
-      { id: 'ricohbw', name: 'GR B/W', smear: 0.05, soft: 0, crisp: 0.95, noise: 0.45, scan: 1, lift: -8, gain: 1.22, vig: 0.18, band: 0, r: 1, g: 1, b: 1, tear: false, bw: true, contrast: 1.72, filter: 'yellow' },
+      { id: 'ricoh', name: 'Ricoh', smear: 0.12, soft: 0.04, crisp: 0.62, noise: 1.85, scan: 1, lift: 2, gain: 1.1, vig: 0.08, band: 0, r: 1.01, g: 1.0, b: 0.99, tear: false, bw: false },
+      { id: 'ricohbw', name: 'GR B/W', smear: 0.05, soft: 0, crisp: 0.95, noise: 1.85, scan: 1, lift: -8, gain: 1.22, vig: 0.18, band: 0, r: 1, g: 1, b: 1, tear: false, bw: true, contrast: 1.72, filter: 'yellow' },
       { id: 'contax', name: 'Contax T2', smear: 0.42, soft: 0.22, crisp: 0.18, noise: 0.32, scan: 0.992, lift: 5, gain: 1.04, vig: 0.2, band: 0, r: 1.08, g: 1.0, b: 0.9, tear: false, bw: false },
       { id: 'fuji', name: 'Fujifilm', smear: 0.58, soft: 0.4, crisp: 0.06, noise: 0.38, scan: 0.994, lift: 7, gain: 0.98, vig: 0.14, band: 0, r: 1.03, g: 1.07, b: 0.93, tear: false, bw: false },
       { id: 'coolpix', name: 'Coolpix', smear: 0.28, soft: 0.12, crisp: 0.78, noise: 0.35, scan: 0.995, lift: 4, gain: 1.08, vig: 0.1, band: 0, r: 1.06, g: 1.01, b: 0.97, tear: false, bw: false },
-      { id: 'polaroid', name: 'Polaroid', smear: 0.95, soft: 0.55, crisp: 0, noise: 0.28, scan: 0.995, lift: 22, gain: 0.9, vig: 0.26, band: 0, r: 1.12, g: 1.0, b: 0.86, tear: false, bw: false }
+      { id: 'polaroid', name: 'Pink Polaroid', smear: 1.35, soft: 0.82, crisp: 0, noise: 0.28, scan: 0.995, lift: 22, gain: 0.9, vig: 0.26, band: 0, r: 1.12, g: 1.0, b: 0.86, tear: false, bw: false }
     ];
 
     const state = {
@@ -760,7 +760,12 @@
       }
       const vBlur = tmp;
 
-      boxBlurH(yA, y2, w, h, look.bw ? 0 : 1);
+      const lumaBlur = look.bw ? 0 : Math.max(1, Math.round(1 + look.soft * 4));
+      boxBlurH(yA, y2, w, h, lumaBlur);
+      if (look.soft > 0.5) {
+        boxBlurV(y2, tmp, w, h, Math.max(1, Math.round(look.soft * 3)));
+        boxBlurH(tmp, y2, w, h, Math.max(1, Math.round(look.soft * 2)));
+      }
 
       const shift = look.bw ? 0 : Math.max(1, Math.round(w * 0.004 * look.smear));
       const band = look.band <= 0 ? 0 : Math.max(4, Math.round(h * look.band));
@@ -791,7 +796,7 @@
           const vig = 1 - look.vig * (nx * nx * 0.85 + ny * ny);
           luma *= vig;
 
-          const noiseAmt = look.bw ? (live ? 2.4 : 3.2) : (live ? 3.2 : 4.0);
+          const noiseAmt = look.noise >= 1.5 ? (live ? 7.2 : 9.5) : (live ? 3.2 : 4.0);
           const noise = (hash(i * 13 + seed) - 0.5) * noiseAmt * look.noise;
           luma += noise * (0.55 + (1 - luma / 255) * 0.45);
 
