@@ -144,7 +144,7 @@
       pointer-events: none;
     }
 
-    .bottom .side, .bottom .shutter { pointer-events: auto; }
+    .bottom .side, .bottom .shutter, .bottom > div { pointer-events: auto; }
 
     .side {
       display: flex;
@@ -193,7 +193,72 @@
       background: #f4f0e8;
     }
 
-    .shutter:active::after { transform: scale(0.92); }
+    .shutter.recording::after {
+      background: #e24a3a;
+      inset: 12px;
+      border-radius: 4px;
+    }
+
+    body.mode-video .shutter::after {
+      background: #e24a3a;
+    }
+
+    .rec-timer {
+      position: absolute;
+      left: 50%;
+      top: -28px;
+      transform: translateX(-50%);
+      color: #e24a3a;
+      letter-spacing: 0.14em;
+      font-size: 11px;
+      display: none;
+    }
+
+    body.is-recording .rec-timer { display: block; }
+
+    .mode-toggle {
+      display: flex;
+      gap: 4px;
+      pointer-events: auto;
+      justify-content: center;
+    }
+
+    .mode-toggle button {
+      min-height: 28px;
+      padding: 0 10px;
+    }
+
+    .mode-toggle button.active {
+      color: #141210;
+      background: var(--fg);
+      border-color: transparent;
+    }
+
+    .viewer video {
+      max-width: min(920px, 100%);
+      max-height: calc(100dvh - 140px);
+      width: auto;
+      height: auto;
+      background: #000;
+    }
+
+    .viewer .row button.danger {
+      color: #ff8d8d;
+      border-color: rgba(255, 141, 141, 0.35);
+    }
+
+    .strip button.vid::after {
+      content: "▶";
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      font-size: 10px;
+      background: rgba(0,0,0,0.28);
+      color: #fff;
+    }
+
+    .strip button { position: relative; }
 
     .thumb {
       width: 40px;
@@ -383,14 +448,21 @@
         <button type="button" data-zoom="4" disabled>4×</button>
         <button type="button" data-zoom="6" disabled>6×</button>
       </div>
+      <div class="mode-toggle" id="modeToggle" role="group" aria-label="Capture mode">
+        <button type="button" data-mode="photo" class="active" disabled>Photo</button>
+        <button type="button" data-mode="video" disabled>Video</button>
+      </div>
       <div class="bottom">
         <div class="side">
           <button type="button" id="flip" disabled>Flip</button>
           <button type="button" id="dateBtn" class="on" disabled>Date</button>
         </div>
-        <button type="button" class="shutter" id="shutter" disabled aria-label="Take photo"></button>
+        <div style="position:relative;justify-self:center">
+          <div class="rec-timer" id="recTimer">00:00</div>
+          <button type="button" class="shutter" id="shutter" disabled aria-label="Take photo"></button>
+        </div>
         <div class="side right">
-          <button type="button" class="thumb" id="thumb" hidden aria-label="All photos">
+          <button type="button" class="thumb" id="thumb" hidden aria-label="All captures">
             <img alt="" id="thumbImg">
             <span class="count" id="count">1</span>
           </button>
@@ -408,11 +480,13 @@
   </div>
 
   <div class="viewer" id="viewer">
-    <img id="review" alt="Captured still">
+    <img id="review" alt="Captured still" hidden>
+    <video id="reviewVideo" controls playsinline hidden></video>
     <div class="strip" id="strip"></div>
     <div class="row">
       <button type="button" id="save">Save this</button>
       <button type="button" id="saveAll">Save all</button>
+      <button type="button" id="deleteShot" class="danger">Delete</button>
       <button type="button" id="closeReview">Back</button>
     </div>
   </div>
@@ -431,11 +505,12 @@
     const wctx = work.getContext('2d', { willReadFrequently: true, alpha: false });
 
     const PRESETS = [
-      { id: 'ricoh', name: 'Ricoh', smear: 0.12, soft: 0.04, crisp: 0.62, noise: 0.22, scan: 1, lift: 2, gain: 1.1, vig: 0.08, band: 0, r: 1.01, g: 1.0, b: 0.99, tear: false },
-      { id: 'contax', name: 'Contax T2', smear: 0.42, soft: 0.22, crisp: 0.18, noise: 0.32, scan: 0.992, lift: 5, gain: 1.04, vig: 0.2, band: 0, r: 1.08, g: 1.0, b: 0.9, tear: false },
-      { id: 'fuji', name: 'Fujifilm', smear: 0.58, soft: 0.4, crisp: 0.06, noise: 0.38, scan: 0.994, lift: 7, gain: 0.98, vig: 0.14, band: 0, r: 1.03, g: 1.07, b: 0.93, tear: false },
-      { id: 'coolpix', name: 'Coolpix', smear: 0.72, soft: 0.36, crisp: 0.22, noise: 0.48, scan: 0.99, lift: 6, gain: 1.0, vig: 0.14, band: 0, r: 1.08, g: 1.02, b: 0.96, tear: false },
-      { id: 'polaroid', name: 'Polaroid', smear: 0.95, soft: 0.55, crisp: 0, noise: 0.28, scan: 0.995, lift: 22, gain: 0.9, vig: 0.26, band: 0, r: 1.12, g: 1.0, b: 0.86, tear: false }
+      { id: 'ricoh', name: 'Ricoh', smear: 0.12, soft: 0.04, crisp: 0.62, noise: 0.22, scan: 1, lift: 2, gain: 1.1, vig: 0.08, band: 0, r: 1.01, g: 1.0, b: 0.99, tear: false, bw: false },
+      { id: 'ricohbw', name: 'Ricoh B/W', smear: 0.1, soft: 0.02, crisp: 0.7, noise: 0.3, scan: 1, lift: 0, gain: 1.14, vig: 0.1, band: 0, r: 1, g: 1, b: 1, tear: false, bw: true },
+      { id: 'contax', name: 'Contax T2', smear: 0.42, soft: 0.22, crisp: 0.18, noise: 0.32, scan: 0.992, lift: 5, gain: 1.04, vig: 0.2, band: 0, r: 1.08, g: 1.0, b: 0.9, tear: false, bw: false },
+      { id: 'fuji', name: 'Fujifilm', smear: 0.58, soft: 0.4, crisp: 0.06, noise: 0.38, scan: 0.994, lift: 7, gain: 0.98, vig: 0.14, band: 0, r: 1.03, g: 1.07, b: 0.93, tear: false, bw: false },
+      { id: 'coolpix', name: 'Coolpix', smear: 0.72, soft: 0.36, crisp: 0.22, noise: 0.48, scan: 0.99, lift: 6, gain: 1.0, vig: 0.14, band: 0, r: 1.08, g: 1.02, b: 0.96, tear: false, bw: false },
+      { id: 'polaroid', name: 'Polaroid', smear: 0.95, soft: 0.55, crisp: 0, noise: 0.28, scan: 0.995, lift: 22, gain: 0.9, vig: 0.26, band: 0, r: 1.12, g: 1.0, b: 0.86, tear: false, bw: false }
     ];
 
     const state = {
@@ -456,7 +531,19 @@
       holdStill: null,
       holdUntil: 0,
       busy: false,
-      queued: 0
+      queued: 0,
+      mode: 'photo',
+      starting: false,
+      recording: false,
+      mediaRecorder: null,
+      recordedChunks: [],
+      recordStream: null,
+      micStream: null,
+      recordTimerId: 0,
+      recordStartedAt: 0,
+      holdTimer: 0,
+      holdTriggered: false,
+      shutterArmed: false
     };
 
     function preset() {
@@ -614,8 +701,8 @@
           luma *= scan;
 
           const cx = Math.min(w - 1, Math.max(0, x - shift));
-          let U = uBlur[row + cx];
-          let V = vBlur[row + cx];
+          let U = look.bw ? 0 : uBlur[row + cx];
+          let V = look.bw ? 0 : vBlur[row + cx];
 
           const nx = (x / (w - 1)) * 2 - 1;
           const ny = (y / (h - 1)) * 2 - 1;
@@ -642,9 +729,13 @@
           let g = Y - 0.344 * U - 0.714 * V;
           let b = Y + 1.772 * U;
 
-          r = r * look.r + 6;
-          g = g * look.g + 4;
-          b = b * look.b + 7;
+          r = r * look.r + (look.bw ? 0 : 6);
+          g = g * look.g + (look.bw ? 0 : 4);
+          b = b * look.b + (look.bw ? 0 : 7);
+          if (look.bw) {
+            const gray = 0.299 * r + 0.587 * g + 0.114 * b;
+            r = g = b = gray;
+          }
 
           const p = i * 4;
           d[p] = r < 0 ? 0 : r > 255 ? 255 : r;
@@ -810,31 +901,106 @@
       state.raf = requestAnimationFrame(loop);
     }
 
-    async function startCamera() {
-      if (state.stream) {
-        state.stream.getTracks().forEach((t) => t.stop());
-      }
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: false,
-        video: {
-          facingMode: { ideal: state.facing },
-          width: { ideal: 1920 },
-          height: { ideal: 1080 }
+    async function getStream() {
+      const attempts = [
+        {
+          audio: false,
+          video: {
+            facingMode: { exact: state.facing },
+            width: { ideal: 1920 },
+            height: { ideal: 1080 },
+            frameRate: { ideal: 30, max: 30 }
+          }
+        },
+        {
+          audio: false,
+          video: {
+            facingMode: { ideal: state.facing },
+            width: { ideal: 1920 },
+            height: { ideal: 1080 },
+            frameRate: { ideal: 30, max: 30 }
+          }
+        },
+        {
+          audio: false,
+          video: {
+            facingMode: state.facing,
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          }
+        },
+        { audio: false, video: true }
+      ];
+      let lastErr = null;
+      for (let i = 0; i < attempts.length; i++) {
+        try {
+          return await navigator.mediaDevices.getUserMedia(attempts[i]);
+        } catch (err) {
+          lastErr = err;
         }
-      });
-      state.stream = stream;
-      video.srcObject = stream;
-      await video.play();
-      await syncLens();
-      state.running = true;
-      state.startedAt = performance.now();
-      document.body.classList.add('is-live');
-      document.getElementById('shutter').disabled = false;
-      document.getElementById('flip').disabled = false;
-      document.getElementById('dateBtn').disabled = false;
-      document.querySelectorAll('#zoom button').forEach((btn) => { btn.disabled = false; });
-      cancelAnimationFrame(state.raf);
-      loop();
+      }
+      throw lastErr || new Error('getUserMedia failed');
+    }
+
+    function stopStreamOnly() {
+      if (state.stream) {
+        state.stream.getTracks().forEach((t) => {
+          try { t.stop(); } catch (e) { /* ignore */ }
+        });
+        state.stream = null;
+      }
+      video.srcObject = null;
+    }
+
+    async function startCamera() {
+      if (state.starting) return;
+      state.starting = true;
+      try {
+        if (state.recording) requestStopRecording();
+        state.running = false;
+        stopStreamOnly();
+        const stream = await getStream();
+        state.stream = stream;
+        video.srcObject = stream;
+        await video.play();
+        if (!video.videoWidth) {
+          await new Promise((resolve) => {
+            const done = () => {
+              video.removeEventListener('loadeddata', done);
+              resolve();
+            };
+            video.addEventListener('loadeddata', done);
+            setTimeout(resolve, 800);
+          });
+        }
+        await syncLens();
+        state.running = true;
+        state.startedAt = performance.now();
+        document.body.classList.add('is-live');
+        document.getElementById('shutter').disabled = false;
+        document.getElementById('flip').disabled = false;
+        document.getElementById('dateBtn').disabled = false;
+        document.querySelectorAll('#zoom button').forEach((btn) => { btn.disabled = false; });
+        document.querySelectorAll('#modeToggle button').forEach((btn) => { btn.disabled = false; });
+        cancelAnimationFrame(state.raf);
+        loop();
+        toast(state.facing === 'user' ? 'Front camera' : 'Rear camera');
+      } finally {
+        state.starting = false;
+      }
+    }
+
+    async function flipCamera() {
+      if (!state.running || state.starting || state.recording) return;
+      state.facing = state.facing === 'environment' ? 'user' : 'environment';
+      toast('Switching…');
+      try {
+        await startCamera();
+      } catch (err) {
+        state.facing = state.facing === 'environment' ? 'user' : 'environment';
+        toast('Could not flip');
+        console.warn(err);
+      }
     }
 
     async function syncLens() {
@@ -877,17 +1043,41 @@
       osc.stop(ctx.currentTime + 0.08);
     }
 
-    function pushShot(blob) {
+    function pushShot(blob, kind, nameHint) {
       const when = new Date();
       state.shotN += 1;
-      const name = 'still-' + when.getFullYear() + pad(when.getMonth() + 1) + pad(when.getDate()) + '-' + pad(when.getHours()) + pad(when.getMinutes()) + pad(when.getSeconds()) + '-' + pad(state.shotN) + '.jpg';
+      const isVideo = kind === 'video';
+      const ext = isVideo
+        ? (blob.type.indexOf('webm') !== -1 ? 'webm' : 'mp4')
+        : 'jpg';
+      const stamp = when.getFullYear() + pad(when.getMonth() + 1) + pad(when.getDate()) + '-' + pad(when.getHours()) + pad(when.getMinutes()) + pad(when.getSeconds()) + '-' + pad(state.shotN);
+      const name = nameHint || ((isVideo ? 'still-vid-' : 'still-') + stamp + '.' + ext);
       const url = URL.createObjectURL(blob);
-      state.shots.push({ blob, url, name });
-      const thumb = document.getElementById('thumb');
-      document.getElementById('thumbImg').src = url;
-      document.getElementById('count').textContent = String(state.shots.length);
-      thumb.hidden = false;
+      const shot = {
+        blob,
+        url,
+        name,
+        kind: isVideo ? 'video' : 'photo',
+        type: blob.type || (isVideo ? 'video/mp4' : 'image/jpeg')
+      };
+      state.shots.push(shot);
+      updateThumb();
       if (document.body.classList.contains('reviewing')) showReview(state.shots.length - 1);
+      return shot;
+    }
+
+    function updateThumb() {
+      const thumb = document.getElementById('thumb');
+      const count = document.getElementById('count');
+      if (!state.shots.length) {
+        thumb.hidden = true;
+        count.textContent = '0';
+        return;
+      }
+      const last = state.shots[state.shots.length - 1];
+      document.getElementById('thumbImg').src = last.kind === 'video' ? last.url : last.url;
+      count.textContent = String(state.shots.length);
+      thumb.hidden = false;
     }
 
     async function captureOne() {
@@ -908,11 +1098,11 @@
         toast('Could not keep frame');
         return;
       }
-      pushShot(blob);
+      pushShot(blob, 'photo');
     }
 
     async function takePhoto() {
-      if (!state.running || video.readyState < 2) return;
+      if (!state.running || video.readyState < 2 || state.recording) return;
       if (state.busy) {
         state.queued = Math.min(12, state.queued + 1);
         return;
@@ -927,6 +1117,200 @@
       } finally {
         state.busy = false;
       }
+    }
+
+    function setCaptureMode(mode) {
+      state.mode = mode === 'video' ? 'video' : 'photo';
+      document.body.classList.toggle('mode-video', state.mode === 'video');
+      document.querySelectorAll('#modeToggle button').forEach((btn) => {
+        btn.classList.toggle('active', btn.getAttribute('data-mode') === state.mode);
+      });
+    }
+
+    function formatRecTime(ms) {
+      const s = Math.floor(ms / 1000);
+      const m = Math.floor(s / 60);
+      const sec = s % 60;
+      return pad(m) + ':' + pad(sec);
+    }
+
+    function pickRecorderMime() {
+      const types = [
+        'video/mp4;codecs=avc1,mp4a.40.2',
+        'video/mp4',
+        'video/webm;codecs=vp9,opus',
+        'video/webm;codecs=vp8,opus',
+        'video/webm'
+      ];
+      if (!window.MediaRecorder || !MediaRecorder.isTypeSupported) return '';
+      for (let i = 0; i < types.length; i++) {
+        if (MediaRecorder.isTypeSupported(types[i])) return types[i];
+      }
+      return '';
+    }
+
+    function stopMicTracks() {
+      if (state.micStream) {
+        state.micStream.getTracks().forEach((t) => { try { t.stop(); } catch (e) { /* */ } });
+        state.micStream = null;
+      }
+      if (state.recordStream) {
+        state.recordStream.getAudioTracks().forEach((t) => { try { t.stop(); } catch (e) { /* */ } });
+        state.recordStream = null;
+      }
+    }
+
+    async function getMicStream() {
+      try {
+        return await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+          video: false
+        });
+      } catch (err) {
+        return null;
+      }
+    }
+
+    function startRecordTimer() {
+      state.recordStartedAt = Date.now();
+      document.getElementById('recTimer').textContent = '00:00';
+      clearInterval(state.recordTimerId);
+      state.recordTimerId = setInterval(() => {
+        document.getElementById('recTimer').textContent = formatRecTime(Date.now() - state.recordStartedAt);
+      }, 250);
+    }
+
+    function stopRecordTimer() {
+      clearInterval(state.recordTimerId);
+      state.recordTimerId = 0;
+    }
+
+    async function startRecording() {
+      if (!state.running || state.recording || !view.width) {
+        toast('Camera not ready');
+        return;
+      }
+      if (!window.MediaRecorder) {
+        toast('Recording not supported');
+        return;
+      }
+      state.recordedChunks = [];
+      const mime = pickRecorderMime();
+      let canvasStream;
+      try {
+        canvasStream = view.captureStream(30);
+      } catch (err) {
+        toast('Could not capture video');
+        return;
+      }
+      stopMicTracks();
+      state.micStream = await getMicStream();
+      state.recordStream = new MediaStream();
+      canvasStream.getVideoTracks().forEach((t) => state.recordStream.addTrack(t));
+      let hasAudio = false;
+      if (state.micStream) {
+        state.micStream.getAudioTracks().forEach((t) => {
+          state.recordStream.addTrack(t);
+          hasAudio = true;
+        });
+      }
+      if (!hasAudio) toast('Mic off — video only');
+      try {
+        const opts = { videoBitsPerSecond: 6000000 };
+        if (mime) opts.mimeType = mime;
+        if (hasAudio) opts.audioBitsPerSecond = 128000;
+        state.mediaRecorder = new MediaRecorder(state.recordStream, opts);
+      } catch (err) {
+        try {
+          state.mediaRecorder = mime
+            ? new MediaRecorder(state.recordStream, { mimeType: mime })
+            : new MediaRecorder(state.recordStream);
+        } catch (err2) {
+          stopMicTracks();
+          toast('Could not start recorder');
+          return;
+        }
+      }
+      state.mediaRecorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) state.recordedChunks.push(e.data);
+      };
+      state.mediaRecorder.onerror = () => {
+        toast('Recording error');
+        finishRecording(true);
+      };
+      state.mediaRecorder.onstop = () => finishRecording(false);
+      try {
+        state.mediaRecorder.start(250);
+      } catch (err) {
+        stopMicTracks();
+        toast('Could not start recording');
+        return;
+      }
+      state.recording = true;
+      document.body.classList.add('is-recording');
+      document.getElementById('shutter').classList.add('recording');
+      startRecordTimer();
+      toast(hasAudio ? 'Recording…' : 'Recording (no mic)');
+    }
+
+    function requestStopRecording() {
+      if (!state.recording || !state.mediaRecorder) return;
+      try {
+        if (state.mediaRecorder.state !== 'inactive') state.mediaRecorder.stop();
+      } catch (err) {
+        finishRecording(true);
+      }
+    }
+
+    function finishRecording(aborted) {
+      if (!state.recording && !state.mediaRecorder) {
+        stopMicTracks();
+        return;
+      }
+      state.recording = false;
+      document.body.classList.remove('is-recording');
+      document.getElementById('shutter').classList.remove('recording');
+      stopRecordTimer();
+      const chunks = state.recordedChunks.slice();
+      const mime = (state.mediaRecorder && state.mediaRecorder.mimeType) || 'video/mp4';
+      state.mediaRecorder = null;
+      state.recordedChunks = [];
+      stopMicTracks();
+      if (aborted || !chunks.length) {
+        toast('Recording cancelled');
+        return;
+      }
+      const blob = new Blob(chunks, { type: mime });
+      pushShot(blob, 'video');
+      toast('Video kept');
+    }
+
+    function onShutterDown(e) {
+      if (!state.running || state.starting) return;
+      e.preventDefault();
+      state.shutterArmed = true;
+      state.holdTriggered = false;
+      clearTimeout(state.holdTimer);
+      state.holdTimer = setTimeout(() => {
+        if (!state.shutterArmed || state.recording) return;
+        state.holdTriggered = true;
+        startRecording();
+      }, state.mode === 'video' ? 180 : 420);
+    }
+
+    function onShutterUp(e) {
+      if (!state.shutterArmed) return;
+      e.preventDefault();
+      state.shutterArmed = false;
+      clearTimeout(state.holdTimer);
+      state.holdTimer = 0;
+      if (state.recording) {
+        requestStopRecording();
+        return;
+      }
+      if (state.holdTriggered) return;
+      if (state.mode === 'video') startRecording();
+      else takePhoto();
     }
 
     async function shareFiles(files) {
@@ -953,7 +1337,7 @@
     }
 
     function fileFor(shot) {
-      return new File([shot.blob], shot.name, { type: 'image/jpeg' });
+      return new File([shot.blob], shot.name, { type: shot.type });
     }
 
     function saveShot() {
@@ -967,20 +1351,58 @@
       shareFiles(state.shots.map(fileFor));
     }
 
+    function deleteShot() {
+      const shot = state.shots[state.reviewIndex];
+      if (!shot) return;
+      URL.revokeObjectURL(shot.url);
+      state.shots.splice(state.reviewIndex, 1);
+      updateThumb();
+      if (!state.shots.length) {
+        document.body.classList.remove('reviewing');
+        const rv = document.getElementById('reviewVideo');
+        rv.pause();
+        rv.removeAttribute('src');
+        toast('Deleted');
+        return;
+      }
+      showReview(Math.min(state.reviewIndex, state.shots.length - 1));
+      toast('Deleted');
+    }
+
     function showReview(index) {
       if (!state.shots.length) return;
       state.reviewIndex = Math.max(0, Math.min(state.shots.length - 1, index));
-      document.getElementById('review').src = state.shots[state.reviewIndex].url;
+      const shot = state.shots[state.reviewIndex];
+      const img = document.getElementById('review');
+      const vid = document.getElementById('reviewVideo');
+      if (shot.kind === 'video') {
+        img.hidden = true;
+        vid.hidden = false;
+        if (vid.src !== shot.url) {
+          vid.src = shot.url;
+        }
+      } else {
+        vid.pause();
+        vid.hidden = true;
+        img.hidden = false;
+        img.src = shot.url;
+      }
       const strip = document.getElementById('strip');
       strip.replaceChildren();
-      state.shots.forEach((shot, i) => {
+      state.shots.forEach((item, i) => {
         const btn = document.createElement('button');
         btn.type = 'button';
         if (i === state.reviewIndex) btn.classList.add('active');
-        const img = document.createElement('img');
-        img.src = shot.url;
-        img.alt = '';
-        btn.appendChild(img);
+        if (item.kind === 'video') btn.classList.add('vid');
+        const thumb = document.createElement(item.kind === 'video' ? 'video' : 'img');
+        thumb.src = item.url;
+        thumb.alt = '';
+        if (item.kind === 'video') {
+          thumb.muted = true;
+          thumb.playsInline = true;
+          thumb.preload = 'metadata';
+        }
+        btn.appendChild(thumb);
         btn.addEventListener('click', () => showReview(i));
         strip.appendChild(btn);
       });
@@ -999,19 +1421,31 @@
       }
     });
 
-    document.getElementById('shutter').addEventListener('click', takePhoto);
-    document.getElementById('flip').addEventListener('click', async () => {
-      state.facing = state.facing === 'environment' ? 'user' : 'environment';
-      try { await startCamera(); } catch (err) { toast('Could not flip'); }
+    const shutter = document.getElementById('shutter');
+    shutter.addEventListener('pointerdown', onShutterDown);
+    shutter.addEventListener('pointerup', onShutterUp);
+    shutter.addEventListener('pointercancel', onShutterUp);
+    shutter.addEventListener('pointerleave', (e) => {
+      if (state.shutterArmed) onShutterUp(e);
     });
+
+    document.getElementById('flip').addEventListener('click', flipCamera);
     document.getElementById('dateBtn').addEventListener('click', () => {
       state.dateOn = !state.dateOn;
       document.getElementById('dateBtn').classList.toggle('on', state.dateOn);
     });
+    document.getElementById('modeToggle').addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-mode]');
+      if (!btn || btn.disabled) return;
+      if (state.recording) return;
+      setCaptureMode(btn.getAttribute('data-mode'));
+    });
     document.getElementById('thumb').addEventListener('click', () => showReview(state.shots.length - 1));
     document.getElementById('save').addEventListener('click', saveShot);
     document.getElementById('saveAll').addEventListener('click', saveAll);
+    document.getElementById('deleteShot').addEventListener('click', deleteShot);
     document.getElementById('closeReview').addEventListener('click', () => {
+      document.getElementById('reviewVideo').pause();
       document.body.classList.remove('reviewing');
     });
 
@@ -1048,6 +1482,7 @@
       if (!state.running) demoPlate();
     });
 
+    setCaptureMode('photo');
     demoPlate();
   </script>
 </body>
